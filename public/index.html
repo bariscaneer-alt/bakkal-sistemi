@@ -605,7 +605,7 @@
 
     <div id="productModal" class="modal">
         <div class="modal-content">
-            <h3>Yeni Ürün Ekle</h3>
+            <h3 id="productModalTitle">Yeni Ürün Ekle</h3>
             <input type="text" id="prodInputBarcode" placeholder="Barkod Numarası" style="width: 100%; margin-bottom: 10px;">
             <input type="text" id="productInputName" placeholder="Ürün Adı" style="width: 100%; margin-bottom: 10px;">
             <select id="productInputUnit" style="width: 100%; margin-bottom: 10px;">
@@ -670,7 +670,7 @@
         let pendingPayments = [], customers = [], products = [], expenses = [], archivedInvoices = [], salesTransactions = [];
         let cart = [], invoiceItems = [], billingItems = [], totalCashEarned = 0, totalExpenses = 0;
         let currentUserRole = null, currentModalMode = '', selectedCustomerId = null, activeCustomerForPayment = null;
-        let currentPdfDataUrl = null, selectedProductForCart = null;
+        let currentPdfDataUrl = null, selectedProductForCart = null, editingProductId = null;
 
         function initRealtimeSync() {
             db.collection("customers").onSnapshot((snapshot) => {
@@ -714,6 +714,8 @@
                 snapshot.forEach((doc) => salesTransactions.push({ firebaseId: doc.id, ...doc.data() }));
                 if (currentUserRole) renderFinancialReports();
             });
+            
+            initFinancialSync();
         }
 
         window.onload = function() { initRealtimeSync(); };
@@ -881,7 +883,7 @@
             window.open(`https://wa.me/?text=${text}`, '_blank');
         }
 
-        // KAMERA İLE BARKOD OKUTMA FONKSİYONLARI
+        // BARKOD OKUYUCU VE YÖNETİM FONKSİYONLARI
         function openBarcodeScannerModal() {
             document.getElementById('barcodeScannerModal').style.display = 'flex';
             setTimeout(() => {
@@ -964,6 +966,93 @@
             }
             renderPosProducts(val);
         }
+
+        function renderProductsTable() {
+            const tbody = document.getElementById('productTableBody');
+            if(!tbody) return;
+            tbody.innerHTML = "";
+            products.forEach(p => {
+                let margin = p.cost > 0 ? (((p.price - p.cost) / p.cost) * 100).toFixed(1) : 0;
+                tbody.innerHTML += `<tr>
+                    <td>${p.barcode || '-'}</td>
+                    <td><strong>${p.name}</strong></td>
+                    <td>${p.unit}</td>
+                    <td>${(p.cost || 0).toFixed(2)} TL</td>
+                    <td>${p.price.toFixed(2)} TL</td>
+                    <td>%${margin}</td>
+                    <td><span style="color:${p.stock <= 3 ? 'red':'green'}; font-weight:bold;">${p.stock}</span></td>
+                    <td>${p.stock <= 3 ? '⚠️ Kritik' : 'Normal'}</td>
+                    <td>
+                        <button class="btn-sm btn-warning" onclick="openEditProductModal('${p.firebaseId}')">Düzenle</button>
+                        <button class="btn-sm btn-debt" onclick="deleteProduct('${p.firebaseId}')">Sil</button>
+                        <button class="btn-sm" style="background-color:var(--primary);" onclick="printShelfTag('${p.firebaseId}')">Etiket</button>
+                    </td>
+                </tr>`;
+            });
+        }
+
+        function openAddProductModal() {
+            editingProductId = null;
+            document.getElementById('productModalTitle').innerText = "Yeni Ürün Ekle";
+            document.getElementById('prodInputBarcode').value = "";
+            document.getElementById('productInputName').value = "";
+            document.getElementById('productInputPrice').value = "";
+            document.getElementById('productInputCost').value = "";
+            document.getElementById('productInputStock').value = "";
+            document.getElementById('productModal').style.display = 'flex';
+        }
+
+        function openEditProductModal(id) {
+            const p = products.find(x => x.firebaseId === id);
+            if(!p) return;
+            editingProductId = id;
+            document.getElementById('productModalTitle').innerText = "Ürün Düzenle";
+            document.getElementById('prodInputBarcode').value = p.barcode || "";
+            document.getElementById('productInputName').value = p.name || "";
+            document.getElementById('productInputUnit').value = p.unit || "Adet";
+            document.getElementById('productInputPrice').value = p.price || 0;
+            document.getElementById('productInputCost').value = p.cost || 0;
+            document.getElementById('productInputStock').value = p.stock || 0;
+            document.getElementById('productModal').style.display = 'flex';
+        }
+
+        function closeProductModal() { document.getElementById('productModal').style.display = 'none'; }
+
+        function saveNewProduct() {
+            const barcode = document.getElementById('prodInputBarcode').value.trim();
+            const name = document.getElementById('productInputName').value.trim();
+            const unit = document.getElementById('productInputUnit').value;
+            const price = parseFloat(document.getElementById('productInputPrice').value);
+            const cost = parseFloat(document.getElementById('productInputCost').value) || 0;
+            const stock = parseFloat(document.getElementById('productInputStock').value) || 0;
+
+            if(!name || isNaN(price)) return alert("Ürün adı ve fiyatı zorunludur.");
+
+            if(editingProductId) {
+                db.collection("products").doc(editingProductId).update({ barcode, name, unit, price, cost, stock });
+            } else {
+                db.collection("products").add({ barcode, name, unit, price, cost, stock });
+            }
+            closeProductModal();
+        }
+
+        function deleteProduct(id) {
+            if(confirm("Bu ürünü silmek istediğinize emin misiniz?")) {
+                db.collection("products").doc(id).delete();
+            }
+        }
+
+        function printShelfTag(id) {
+            const p = products.find(x => x.firebaseId === id);
+            if(!p) return;
+            document.getElementById('shelfTagContent').innerHTML = `
+                <h2>${p.name}</h2>
+                <div class="price">${p.price.toFixed(2)} TL</div>
+                <div style="font-size:0.8rem; color:#555;">Birim: ${p.unit} | Barkod: ${p.barcode || '---'}</div>
+            `;
+            document.getElementById('shelfTagModal').style.display = 'flex';
+        }
+        function closeShelfTagModal() { document.getElementById('shelfTagModal').style.display = 'none'; }
 
         function processExcelUpload() {
             const fileInput = document.getElementById('excelFileInput');
@@ -1670,107 +1759,123 @@
             window.open(`https://wa.me/${cleanPhone}?text=${msg}`, '_blank');
         }
 
-        function renderProductsTable() {
-            const tbody = document.getElementById('productTableBody');
-            if(!tbody) return;
-            tbody.innerHTML = "";
-            products.forEach(p => {
-                let cost = p.cost || 0;
-                let margin = cost > 0 ? (((p.price - cost) / cost) * 100).toFixed(0) + "%" : "-%";
-                tbody.innerHTML += `<tr>
-                    <td>${p.barcode || '-'}</td>
-                    <td>${p.name}</td>
-                    <td>${p.unit}</td>
-                    <td>${cost.toFixed(2)} TL</td>
-                    <td>${p.price.toFixed(2)} TL</td>
-                    <td><span style="color:var(--success); font-weight:bold;">${margin}</span></td>
-                    <td><strong>${p.stock}</strong></td>
-                    <td>${p.stock <= 3 ? '<span style="color:red">Kritik Stok!</span>' : 'Normal'}</td>
-                    <td>
-                        <button class="btn-sm btn-warning" onclick="editProd('${p.firebaseId}')">Düzenle</button>
-                        <button class="btn-sm" style="background-color:var(--primary);" onclick="openShelfTag('${p.firebaseId}')">Etiket</button>
-                    </td>
-                </tr>`;
-            });
-        }
-
-        function editProd(id) {
-            const p = products.find(x => x.firebaseId === id);
-            const np = prompt("Yeni Satış Fiyatı:", p.price);
-            if (!isNaN(np) && np !== null) db.collection("products").doc(id).update({ price: parseFloat(np) });
-        }
-
-        function openShelfTag(id) {
-            const p = products.find(x => x.firebaseId === id);
-            if (!p) return;
-            document.getElementById('shelfTagContent').innerHTML = `
-                <h2>${appConfig.businessName}</h2>
-                <div style="font-size:1.1rem; font-weight:bold; margin: 5px 0; color:#333;">${p.name}</div>
-                <div class="price">${p.price.toFixed(2)} TL</div>
-                <div style="font-size:0.75rem; color:#666;">Birim: ${p.unit} | Barkod: ${p.barcode || '---'}</div>`;
-            document.getElementById('shelfTagModal').style.display = 'flex';
-        }
-        function closeShelfTagModal() { document.getElementById('shelfTagModal').style.display = 'none'; }
-
-        function openAddCustomerModal() { document.getElementById('actionModal').style.display = 'flex'; currentModalMode='add'; }
-        function closeActionModal() { document.getElementById('actionModal').style.display = 'none'; }
-        function openActionModal(mode, id) { currentModalMode=mode; selectedCustomerId=id; document.getElementById('actionModal').style.display='flex'; }
-        function executeAction() {
-            const amt = parseFloat(document.getElementById('modalInputAmount').value);
-            if (currentModalMode === 'add') {
-                db.collection("customers").add({ name: document.getElementById('modalInputName').value, apartment: document.getElementById('modalInputApartment').value, phone: document.getElementById('modalInputPhone').value, limit: parseFloat(document.getElementById('modalInputLimit').value)||1000, balance:0 });
-            } else {
-                const c = customers.find(x => x.firebaseId === selectedCustomerId);
-                let newBal = currentModalMode === 'debt' ? c.balance + amt : c.balance - amt;
-                db.collection("customers").doc(selectedCustomerId).update({ balance: newBal });
-            }
-            closeActionModal();
-        }
-
-        function openAddProductModal() { document.getElementById('productModal').style.display = 'flex'; }
-        function closeProductModal() { document.getElementById('productModal').style.display = 'none'; }
-        function saveNewProduct() {
-            db.collection("products").add({
-                barcode: document.getElementById('prodInputBarcode').value,
-                name: document.getElementById('productInputName').value,
-                unit: document.getElementById('productInputUnit').value,
-                price: parseFloat(document.getElementById('productInputPrice').value),
-                cost: parseFloat(document.getElementById('productInputCost').value),
-                stock: parseFloat(document.getElementById('productInputStock').value)
-            });
-            closeProductModal();
-        }
-
         function updatePendingBadge() {
             const badge = document.getElementById('pendingBadge');
-            badge.style.display = pendingPayments.length > 0 ? 'inline' : 'none';
-            badge.innerText = pendingPayments.length;
+            if(!badge) return;
+            if (pendingPayments.length > 0) {
+                badge.style.display = 'inline-block';
+                badge.innerText = pendingPayments.length;
+            } else {
+                badge.style.display = 'none';
+            }
         }
 
         function renderPendingPaymentsTable() {
             const tbody = document.getElementById('pendingPaymentsTableBody');
             if(!tbody) return;
-            tbody.innerHTML = pendingPayments.map(p => `<tr><td>${p.datetime}</td><td>${p.name}</td><td>${p.apartment}</td><td>${p.amount.toFixed(2)} TL</td><td>${p.method}</td><td><button class="btn-sm btn-pay" onclick="approvePay('${p.firebaseId}','${p.customerId}',${p.amount})">Onayla</button></td></tr>`).join('');
+            tbody.innerHTML = "";
+            pendingPayments.forEach(p => {
+                tbody.innerHTML += `<tr>
+                    <td>${p.datetime}</td>
+                    <td><strong>${p.name}</strong></td>
+                    <td>${p.apartment}</td>
+                    <td style="color:var(--success); font-weight:bold;">${p.amount.toFixed(2)} TL</td>
+                    <td>${p.method}</td>
+                    <td><button class="btn-sm btn-pay" onclick="approvePayment('${p.firebaseId}', '${p.customerId}', ${p.amount})">Onayla & Bakiyeden Düş</button></td>
+                </tr>`;
+            });
         }
 
-        function approvePay(pid, cid, amt) {
-            db.collection("customers").doc(cid).update({ balance: 0 });
-            db.collection("pendingPayments").doc(pid).delete();
-            totalCashEarned += amt;
-            alert("Ödeme onaylandı.");
+        function approvePayment(paymentId, customerId, amount) {
+            const cust = customers.find(c => c.firebaseId === customerId);
+            if (cust) {
+                db.collection("customers").doc(customerId).update({
+                    balance: Math.max(0, cust.balance - amount)
+                });
+            }
+            db.collection("pendingPayments").doc(paymentId).delete();
+            totalCashEarned += amount;
+            alert("Ödeme onaylandı ve müşteri bakiyesinden düşüldü.");
         }
 
-        function saveSettings() { 
-            appConfig.businessName = document.getElementById('settingBusinessName').value;
-            appConfig.adminPass = document.getElementById('settingAdminPass').value;
-            appConfig.cashierPass = document.getElementById('settingCashierPass').value;
-            appConfig.iban = document.getElementById('settingIban').value;
+        function openAddCustomerModal() {
+            currentModalMode = 'addCustomer';
+            document.getElementById('actionModalTitle').innerText = "Yeni Müşteri Ekle";
+            document.getElementById('modalInputName').value = "";
+            document.getElementById('modalInputApartment').value = "";
+            document.getElementById('modalInputPhone').value = "";
+            document.getElementById('modalInputLimit').value = "1000";
+            document.getElementById('modalInputAmount').value = "";
+            
+            document.getElementById('modalInputName').style.display = 'block';
+            document.getElementById('modalInputApartment').style.display = 'block';
+            document.getElementById('modalInputPhone').style.display = 'block';
+            document.getElementById('modalInputLimit').style.display = 'block';
+            document.getElementById('modalInputAmount').style.display = 'none';
+            document.getElementById('actionModal').style.display = 'flex';
+        }
+
+        function openActionModal(mode, custId) {
+            currentModalMode = mode;
+            selectedCustomerId = custId;
+            const cust = customers.find(c => c.firebaseId === custId);
+
+            document.getElementById('modalInputName').style.display = 'none';
+            document.getElementById('modalInputApartment').style.display = 'none';
+            document.getElementById('modalInputPhone').style.display = 'none';
+            document.getElementById('modalInputLimit').style.display = 'none';
+            document.getElementById('modalInputAmount').style.display = 'block';
+            document.getElementById('modalInputAmount').value = "";
+
+            if (mode === 'debt') {
+                document.getElementById('actionModalTitle').innerText = `${cust.name} - Borç Ekle`;
+            } else if (mode === 'pay') {
+                document.getElementById('actionModalTitle').innerText = `${cust.name} - Tahsilat Al`;
+            }
+            document.getElementById('actionModal').style.display = 'flex';
+        }
+
+        function closeActionModal() { document.getElementById('actionModal').style.display = 'none'; }
+
+        function executeAction() {
+            if (currentModalMode === 'addCustomer') {
+                const name = document.getElementById('modalInputName').value.trim();
+                const apartment = document.getElementById('modalInputApartment').value.trim();
+                const phone = document.getElementById('modalInputPhone').value.trim();
+                const limit = parseFloat(document.getElementById('modalInputLimit').value) || 1000;
+                if(!name) return alert("Müşteri adı zorunludur.");
+
+                db.collection("customers").add({ name, apartment, phone, limit, balance: 0, purchasedItems: [] });
+                closeActionModal();
+            } else {
+                const amount = parseFloat(document.getElementById('modalInputAmount').value);
+                if (isNaN(amount) || amount <= 0) return alert("Geçerli bir tutar giriniz.");
+                const cust = customers.find(c => c.firebaseId === selectedCustomerId);
+                if (!cust) return;
+
+                let newBalance = cust.balance;
+                if (currentModalMode === 'debt') {
+                    newBalance += amount;
+                } else if (currentModalMode === 'pay') {
+                    newBalance = Math.max(0, newBalance - amount);
+                    totalCashEarned += amount;
+                }
+
+                db.collection("customers").doc(selectedCustomerId).update({ balance: newBalance });
+                closeActionModal();
+            }
+        }
+
+        function saveSettings() {
+            appConfig.adminPass = document.getElementById('settingAdminPass').value || "1234";
+            appConfig.cashierPass = document.getElementById('settingCashierPass').value || "5678";
+            appConfig.iban = document.getElementById('settingIban').value || "";
+            appConfig.businessName = document.getElementById('settingBusinessName').value || "Hayel Müzik 37 & Bakkal";
+            
             document.getElementById('headerTitle').innerText = `🛒 ${appConfig.businessName}`;
             document.getElementById('footerBrand').innerText = appConfig.businessName;
-            alert("Ayarlar kaydedildi."); 
+            alert("Ayarlar başarıyla kaydedildi.");
         }
-
-        setTimeout(() => { initFinancialSync(); }, 1000);
     </script>
 </body>
 </html>

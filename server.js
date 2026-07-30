@@ -14,15 +14,15 @@ app.use(express.json());
 // Public klasörünü (arayüzü) dış dünyaya açan kritik satır:
 app.use(express.static(path.join(__dirname, 'public')));
 
-// MongoDB Bağlantı Adresi
-const MONGO_URI = "mongodb+srv://bariscaneer_db_user:bakkal1234@yolcu.o1or6se.mongodb.net/bakkalDB?appName=yolcu"; 
+// MongoDB Bağlantı Adresi (SSL/TLS uyumluluk parametreleri eklendi)
+const MONGO_URI = "mongodb+srv://bariscaneer_db_user:bakkal1234@yolcu.o1or6se.mongodb.net/bakkalDB?retryWrites=true&w=majority&tls=true&tlsAllowInvalidCertificates=true"; 
 
-// MongoDB Bağlantısı (Yalın ve kararlı bağlantı)
+// MongoDB Bağlantısı
 mongoose.connect(MONGO_URI)
   .then(() => console.log("MongoDB Veritabanına Bağlandı!"))
   .catch((err) => console.log("Bağlantı hatası:", err));
 
-// --- Veritabanı Modelleri (Örnek Şemalar) ---
+// --- Veritabanı Modelleri ---
 const productSchema = new mongoose.Schema({
     barcode: String,
     name: String,
@@ -44,7 +44,8 @@ const customerSchema = new mongoose.Schema({
 const Customer = mongoose.model('Customer', customerSchema);
 
 // --- API Rotaları ---
-// Ürünleri listeleme
+
+// 1. Ürünleri Listeleme (GET)
 app.get('/api/products', async (req, res) => {
     try {
         const products = await Product.find();
@@ -54,7 +55,30 @@ app.get('/api/products', async (req, res) => {
     }
 });
 
-// Müşterileri listeleme
+// 2. Yeni Ürün Ekleme / Güncelleme (POST)
+app.post('/api/products', async (req, res) => {
+    try {
+        const { barcode, name, unit, price, cost, stock } = req.body;
+        
+        let product = await Product.findOne({ barcode });
+        if (product) {
+            product.name = name || product.name;
+            product.unit = unit || product.unit;
+            product.price = price !== undefined ? price : product.price;
+            product.cost = cost !== undefined ? cost : product.cost;
+            product.stock = stock !== undefined ? stock : product.stock;
+            await product.save();
+        } else {
+            product = new Product({ barcode, name, unit, price, cost, stock });
+            await product.save();
+        }
+        res.status(201).json({ message: "Ürün başarıyla kaydedildi!", product });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 3. Müşterileri Listeleme (GET)
 app.get('/api/customers', async (req, res) => {
     try {
         const customers = await Customer.find();
@@ -64,9 +88,27 @@ app.get('/api/customers', async (req, res) => {
     }
 });
 
-// --- KÖK DİZİN (/) YÖNLENDİRMESİ ("Not Found" Hatasını Çözen Kısım) ---
+// 4. Yeni Müşteri Ekleme (POST)
+app.post('/api/customers', async (req, res) => {
+    try {
+        const { name, apartment, phone, limit, balance, purchasedItems } = req.body;
+        const newCustomer = new Customer({
+            name,
+            apartment,
+            phone,
+            limit,
+            balance: balance || 0,
+            purchasedItems: purchasedItems || []
+        });
+        await newCustomer.save();
+        res.status(201).json({ message: "Müşteri başarıyla kaydedildi!", newCustomer });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- KÖK DİZİN (/) YÖNLENDİRMESİ ---
 app.get('/', (req, res) => {
-    // Projenizde public klasörü içinde index.html olduğunu varsayarak yönlendiriyoruz
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
