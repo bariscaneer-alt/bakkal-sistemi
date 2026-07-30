@@ -43,7 +43,7 @@ const customerSchema = new mongoose.Schema({
 });
 const Customer = mongoose.model('Customer', customerSchema);
 
-// --- API Rotaları (Örnek) ---
+// --- API Rotaları ---
 // Ürünleri listeleme
 app.get('/api/products', async (req, res) => {
     try {
@@ -64,8 +64,13 @@ app.get('/api/customers', async (req, res) => {
     }
 });
 
+// --- KÖK DİZİN (/) YÖNLENDİRMESİ ("Not Found" Hatasını Çözen Kısım) ---
+app.get('/', (req, res) => {
+    // Projenizde public klasörü içinde index.html olduğunu varsayarak yönlendiriyoruz
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 // Sunucuyu Başlatma
 app.listen(PORT, () => {
     console.log(`Sunucu ${PORT} portunda çalışıyor.`);
-    console.log(`Arayüze erişmek için tarayıcınıza şunu yazın: http://localhost:${PORT}`);
 });
