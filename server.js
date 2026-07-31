@@ -6,21 +6,17 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
-app.expressjson = express.json();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Statik Dosyaları Sunma (Frontend için)
 app.use(express.static(path.join(__dirname, 'public')));
 
-// MongoDB Veritabanı Bağlantısı (Environment variable üzerinden veya doğrudan Atlas URI)
-const MONGO_URI = process.env.MONGO_URI || "YEREL_VEYA_ATLAS_MONGODB_BAGLANTI_ADRESINIZ";
+// MongoDB Veritabanı Bağlantısı (Yerel MongoDB adresi eklendi)
+const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/bakkal-otomasyon";
 
-mongoose.connect(MONGO_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true
-})
-.then(() => console.log("MongoDB veritabanı bağlantısı başarıyla kuruşdu."))
+mongoose.connect(MONGO_URI)
+.then(() => console.log("MongoDB veritabanı bağlantısı başarıyla kuruldu."))
 .catch(err => console.error("MongoDB bağlantı hatası:", err));
 
 // 1. Şirket ve Sistem Ayarları Şeması
