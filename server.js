@@ -1,51 +1,97 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const cors = require('cors');
 const path = require('path');
 
 const app = express();
-// Bulut sunucuların atayacağı portu kullanır, yoksa yerelde 3000'i seçer
 const PORT = process.env.PORT || 3000;
 
 // Middleware
-app.use(cors());
+app.expressjson = express.json();
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Public klasörünü (arayüzü) dış dünyaya açan kritik satır:
+// Statik Dosyaları Sunma (Frontend için)
 app.use(express.static(path.join(__dirname, 'public')));
 
-// MongoDB Bağlantı Adresi (SSL/TLS uyumluluk parametreleri eklendi)
-const MONGO_URI = "mongodb+srv://bariscaneer_db_user:bakkal1234@yolcu.o1or6se.mongodb.net/bakkalDB?retryWrites=true&w=majority&tls=true&tlsAllowInvalidCertificates=true"; 
+// MongoDB Veritabanı Bağlantısı (Environment variable üzerinden veya doğrudan Atlas URI)
+const MONGO_URI = process.env.MONGO_URI || "YEREL_VEYA_ATLAS_MONGODB_BAGLANTI_ADRESINIZ";
 
-// MongoDB Bağlantısı
-mongoose.connect(MONGO_URI)
-  .then(() => console.log("MongoDB Veritabanına Bağlandı!"))
-  .catch((err) => console.log("Bağlantı hatası:", err));
+mongoose.connect(MONGO_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true
+})
+.then(() => console.log("MongoDB veritabanı bağlantısı başarıyla kuruşdu."))
+.catch(err => console.error("MongoDB bağlantı hatası:", err));
 
-// --- Veritabanı Modelleri ---
+// 1. Şirket ve Sistem Ayarları Şeması
+const settingsSchema = new mongoose.Schema({
+    businessName: { type: String, default: "Hayel Müzik 37 & Bakkal" },
+    taxNo: { type: String, default: "1234567890" },
+    ownerPhone: { type: String, default: "05000000000" },
+    adminPass: { type: String, default: "1234" },
+    cashierPass: { type: String, default: "5678" },
+    iban: { type: String, default: "TR33 0006 1005 2198 6742 3300 01" }
+});
+const Settings = mongoose.model('Settings', settingsSchema);
+
+// 2. Ürün ve Stok Şeması
 const productSchema = new mongoose.Schema({
     barcode: String,
-    name: String,
-    unit: String,
-    price: Number,
-    cost: Number,
-    stock: Number
+    name: { type: String, required: true },
+    unit: { type: String, default: "Adet" },
+    cost: { type: Number, default: 0 },
+    price: { type: Number, required: true },
+    stock: { type: Number, default: 0 }
 });
 const Product = mongoose.model('Product', productSchema);
 
+// 3. Müşteri ve Veresiye Şeması
 const customerSchema = new mongoose.Schema({
-    name: String,
+    name: { type: String, required: true },
     apartment: String,
     phone: String,
-    limit: Number,
+    limit: { type: Number, default: 1000 },
     balance: { type: Number, default: 0 },
-    purchasedItems: Array
+    purchasedItems: [{
+        name: String,
+        qty: Number,
+        unit: String,
+        price: Number,
+        time: String
+    }]
 });
 const Customer = mongoose.model('Customer', customerSchema);
 
-// --- API Rotaları ---
+// API Rotaları - Ayarlar
+app.get('/api/settings', async (req, res) => {
+    try {
+        let settings = await Settings.findOne();
+        if (!settings) {
+            settings = new Settings();
+            await settings.save();
+        }
+        res.json(settings);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
-// 1. Ürünleri Listeleme (GET)
+app.post('/api/settings', async (req, res) => {
+    try {
+        let settings = await Settings.findOne();
+        if (!settings) {
+            settings = new Settings(req.body);
+        } else {
+            Object.assign(settings, req.body);
+        }
+        await settings.save();
+        res.json({ success: true, settings });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// API Rotaları - Ürünler
 app.get('/api/products', async (req, res) => {
     try {
         const products = await Product.find();
@@ -55,30 +101,17 @@ app.get('/api/products', async (req, res) => {
     }
 });
 
-// 2. Yeni Ürün Ekleme / Güncelleme (POST)
 app.post('/api/products', async (req, res) => {
     try {
-        const { barcode, name, unit, price, cost, stock } = req.body;
-        
-        let product = await Product.findOne({ barcode });
-        if (product) {
-            product.name = name || product.name;
-            product.unit = unit || product.unit;
-            product.price = price !== undefined ? price : product.price;
-            product.cost = cost !== undefined ? cost : product.cost;
-            product.stock = stock !== undefined ? stock : product.stock;
-            await product.save();
-        } else {
-            product = new Product({ barcode, name, unit, price, cost, stock });
-            await product.save();
-        }
-        res.status(201).json({ message: "Ürün başarıyla kaydedildi!", product });
+        const newProduct = new Product(req.body);
+        await newProduct.save();
+        res.json({ success: true, product: newProduct });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// 3. Müşterileri Listeleme (GET)
+// API Rotaları - Müşteriler
 app.get('/api/customers', async (req, res) => {
     try {
         const customers = await Customer.find();
@@ -88,31 +121,17 @@ app.get('/api/customers', async (req, res) => {
     }
 });
 
-// 4. Yeni Müşteri Ekleme (POST)
 app.post('/api/customers', async (req, res) => {
     try {
-        const { name, apartment, phone, limit, balance, purchasedItems } = req.body;
-        const newCustomer = new Customer({
-            name,
-            apartment,
-            phone,
-            limit,
-            balance: balance || 0,
-            purchasedItems: purchasedItems || []
-        });
+        const newCustomer = new Customer(req.body);
         await newCustomer.save();
-        res.status(201).json({ message: "Müşteri başarıyla kaydedildi!", newCustomer });
+        res.json({ success: true, customer: newCustomer });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// --- KÖK DİZİN (/) YÖNLENDİRMESİ ---
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
 // Sunucuyu Başlatma
 app.listen(PORT, () => {
-    console.log(`Sunucu ${PORT} portunda çalışıyor.`);
+    console.log(`Sunucu ${PORT} numaralı port üzerinde çalışıyor.`);
 });

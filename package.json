@@ -1,19 +1,18 @@
 {
-  "name": "bakkal-sistemi",
+  "name": "hayel-muzik-bakkal-otomasyonu",
   "version": "1.0.0",
-  "description": "",
+  "description": "Hayel Müzik 37 & Bakkal Profesyonel POS ve Otomasyon Sistemi",
   "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
-    "cors": "^2.8.6",
-    "express": "^5.2.1",
-    "mongoose": "^9.8.1"
-  }
+    "express": "4.18.2",
+    "mongoose": "8.0.3"
+  },
+  "engines": {
+    "node": ">=18.x"
+  },
+  "author": "Hayel Müzik 37",
+  "license": "ISC"
 }
